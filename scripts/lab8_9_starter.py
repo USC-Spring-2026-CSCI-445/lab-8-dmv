@@ -311,7 +311,22 @@ class ParticleFilter:
     def get_estimate(self) -> Tuple[float, float, float]:
         # Estimate robot's location using particle weights
         ######### Your code starts here #########
+        if not self._particles:
+            return 0.0, 0.0, 0.0
 
+        log_weights = np.array([p.log_p for p in self._particles])
+        log_weights -= np.max(log_weights)
+        weights = np.exp(log_weights)
+        weights /= np.sum(weights)
+
+        x = sum(p.x * w for p, w in zip(self._particles, weights))
+        y = sum(p.y * w for p, w in zip(self._particles, weights))
+
+        sin_sum = sum(math.sin(p.theta) * w for p, w in zip(self._particles, weights))
+        cos_sum = sum(math.cos(p.theta) * w for p, w in zip(self._particles, weights))
+        theta = math.atan2(sin_sum, cos_sum)
+
+        return x, y, theta
         ######### Your code ends here #########
 
 
