@@ -435,7 +435,7 @@ class Controller:
         ######### Your code starts here #########
         # NOTE: with more than 2 angles the particle filter will converge too quickly, so with high likelihood the
         # correct neighborhood won't be found.
-
+        pass
         ######### Your code ends here #########
 
     def autonomous_exploration(self):
@@ -448,20 +448,72 @@ class Controller:
         """
         # Robot autonomously explores environment while it localizes itself
         ######### Your code starts here #########
-
+        pass
         ######### Your code ends here #########
 
     def forward_action(self, distance: float):
         # Robot moves forward by a set amount during manual control
         ######### Your code starts here #########
+        pid_dist = PIDController(kP=1.2, kI=0.0, kD=1.5, kS=0.5, u_min=-0.22, u_max=0.22)
+        pid_angle = PIDController(kP=1.2, kI=0.2, kD=1.0, kS=0.5, u_min=-2.0, u_max=2.0)
 
+        start_pos = copy.deepcopy(self.current_position)
+        start_theta = start_pos['theta']
+
+        rate = rospy.Rate(20)
+
+        while not rospy.is_shutdown():
+            dx = self.current_position['x'] - start_pos['x']
+            dy = self.current_position['y'] - start_pos['y']
+
+            forward_progress = dx * math.cos(start_theta) + dy * math.sin(start_theta)
+            distance_error = distance - forward_progress
+
+            heading_error = angle_to_neg_pi_to_pi(start_theta - self.current_position['theta'])
+
+            if abs(distance_error) < 0.02:
+                break
+
+            v = pid_dist.control(distance_error, rospy.get_time())
+            w = pid_angle.control(heading_error, rospy.get_time())
+
+            twist = Twist()
+            twist.linear.x = v
+            twist.angular.z = w
+            self.robot_ctrl_pub.publish(twist)
+
+            rate.sleep()
+
+        self.robot_ctrl_pub.publish(Twist())
+
+        delta_x = self.current_position['x'] - start_pos['x']
+        delta_y = self.current_position['y'] - start_pos['y']
+        delta_theta = angle_to_neg_pi_to_pi(self.current_position['theta'] - start_theta)
+
+        self._particle_filter.move_by(delta_x, delta_y, delta_theta)
+        self._particle_filter.visualize_particles()
         ######### Your code ends here #########
 
     def rotate_action(self, goal_theta: float):
         # Robot turns by a set amount during manual control
         ######### Your code starts here #########
-
-
+        pid = PIDController(kP=1.2, kI=0.2, kD=1.0, kS=0.5, u_min=-2.0, u_max=2.0)
+        theta = angle_to_neg_pi_to_pi(self.current_position['theta'] + goal_theta)
+        
+        rate = rospy.Rate(20)
+        while not rospy.is_shutdown():
+            error = angle_to_neg_pi_to_pi(theta - self.current_position['theta'])
+            
+            if abs(error) < 0.03:
+                break
+                
+            ang_vel = pid.control(error, rospy.get_time())
+            self.robot_ctrl_pub.publish(Twist(angular=Vector3(z=ang_vel)))
+            rate.sleep()
+            
+        self.robot_ctrl_pub.publish(Twist())
+        self._particle_filter.move_by(0, 0, goal_theta)
+        self._particle_filter.visualize_particles()
         ######### Your code ends here #########
 
 
@@ -502,15 +554,15 @@ if __name__ == "__main__":
                 ######### Your code ends here #########
             elif uinput == "a": # left
                 ######### Your code starts here #########
-                controller.forward_action(-0.5)
+                controller.rotate_action(pi/2)
                 ######### Your code ends here #########
             elif uinput == "d": #right
                 ######### Your code starts here #########
-                controller.rotate_action(pi/2)
+                controller.rotate_action(-pi/2)
                 ######### Your code ends here #########
             elif uinput == "s": # backwards
                 ######### Your code starts here #########
-                controller.rotate_action(-pi/2)
+                controller.forward_action(-0.5)
                 ######### Your code ends here #########
             else:
                 print("Invalid input")
