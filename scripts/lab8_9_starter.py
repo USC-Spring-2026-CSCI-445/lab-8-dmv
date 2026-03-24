@@ -161,6 +161,50 @@ class Map:
 # PID controller class
 ######### Your code starts here #########
 
+class PIDController:
+    """
+    Generates control action taking into account instantaneous error (proportional action),
+    accumulated error (integral action) and rate of change of error (derivative action).
+    """
+
+    def __init__(self, kP, kI, kD, kS, u_min, u_max):
+        assert u_min < u_max, "u_min should be less than u_max"
+        # initialize PID variables here
+        ######### Your code starts here #########
+        self.kP = kP
+        self.kI = kI
+        self.kD = kD
+        self.kS = kS
+        self.u_min = u_min
+        self.u_max = u_max
+        self.err_prev = 0.0
+        self.err_int = 0.0
+        self.t_prev = None
+        ######### Your code ends here #########
+
+    def control(self, err, t):
+        # compute PID control action here
+        ######### Your code starts here #########
+        if self.t_prev is None:
+            self.t_prev = t
+            return 0.0
+
+        dt = t - self.t_prev
+        if dt <= 1e-6:
+            return 0.0
+        
+        derr = (err - self.err_prev) / dt
+
+        self.err_int += err * dt
+        self.err_int = max(-self.kS, min(self.kS, self.err_int))
+
+        u = self.kP * err + self.kI * self.err_int + self.kD * derr
+        u = max(self.u_min, min(self.u_max, u))
+
+        self.err_prev = err
+        self.t_prev = t
+        return u
+        
 ######### Your code ends here #########
 
 
@@ -190,7 +234,22 @@ class ParticleFilter:
 
         # Initialize uniformly-distributed particles
         ######### Your code starts here #########
+        self._map = map_
+        self.n_particles = n_particles
+        self.translation_variance = translation_variance
+        self.rotation_variance = rotation_variance
+        self.measurement_variance = measurement_variance
 
+        self._particles = []
+
+        x_min, x_max = map_.map_aabb[0], map_.map_aabb[1]
+        y_min, y_max = map_.map_aabb[2], map_.map_aabb[3]
+
+        for _ in range(n_particles):
+            x = uniform(x_min, x_max)
+            y = uniform(y_min, y_max)
+            theta = uniform(-pi, pi)
+            self._particles.append(Particle(x, y, theta, 0.0))
         ######### Your code ends here #########
 
     def visualize_particles(self):
