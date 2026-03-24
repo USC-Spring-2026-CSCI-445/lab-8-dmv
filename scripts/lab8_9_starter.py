@@ -281,7 +281,18 @@ class ParticleFilter:
 
         # Propagate motion of each particle
         ######### Your code starts here #########
+        for particle in self._particles:
+            noisy_dx = delta_x + np.random.normal(0, self.translation_variance)
+            noisy_dy = delta_y + np.random.normal(0, self.translation_variance)
+            noisy_dtheta = delta_theta + np.random.normal(0, self.rotation_variance)
 
+            cos_theta = math.cos(particle.theta)
+            sin_theta = math.sin(particle.theta)
+            
+            particle.x += (noisy_dx * cos_theta - noisy_dy * sin_theta)
+            particle.y += (noisy_dx * sin_theta + noisy_dy * cos_theta)
+            
+            particle.theta = angle_to_neg_pi_to_pi(particle.theta + noisy_dtheta)
         ######### Your code ends here #########
 
     def measure(self, z: float, scan_angle_in_rad: float):
