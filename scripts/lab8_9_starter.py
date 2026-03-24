@@ -305,7 +305,42 @@ class ParticleFilter:
 
         # Calculate posterior probabilities and resample
         ######### Your code starts here #########
+        log_weights = []
 
+        for particle in self._particles:
+            expected = self._map.closest_distance(
+                (particle.x, particle.y),
+                particle.theta + scan_angle_in_rad
+            )
+
+            if expected is None:
+                particle.log_p += math.log(1e-9)
+                continue
+
+            likelihood = scipy.stats.norm(
+                loc=expected,
+                scale=self.measurement_variance
+            ).pdf(z)
+
+            particle.log_p += math.log(likelihood + 1e-9)
+            log_weights.append(particle.log_p)
+
+        log_weights = np.array([p.log_p for p in self._particles])
+
+        log_weights -= np.max(log_weights)
+        weights = np.exp(log_weights)
+        weights /= np.sum(weights)
+
+        indices = np.random.choice(
+            len(self._particles),
+            size=len(self._particles),
+            p=weights
+        )
+
+        self._particles = [copy.deepcopy(self._particles[i]) for i in indices]
+
+        for p in self._particles:
+            p.log_p = 0.0
         ######### Your code ends here #########
 
     def get_estimate(self) -> Tuple[float, float, float]:
