@@ -281,18 +281,20 @@ class ParticleFilter:
 
         # Propagate motion of each particle
         ######### Your code starts here #########
+        delta_theta = angle_to_neg_pi_to_pi(delta_theta)
+
         for particle in self._particles:
             noisy_dx = delta_x + np.random.normal(0, self.translation_variance)
             noisy_dy = delta_y + np.random.normal(0, self.translation_variance)
             noisy_dtheta = delta_theta + np.random.normal(0, self.rotation_variance)
 
-            cos_theta = math.cos(particle.theta)
-            sin_theta = math.sin(particle.theta)
-            
-            particle.x += (noisy_dx * cos_theta - noisy_dy * sin_theta)
-            particle.y += (noisy_dx * sin_theta + noisy_dy * cos_theta)
-            
+            particle.x += noisy_dx
+            particle.y += noisy_dy
             particle.theta = angle_to_neg_pi_to_pi(particle.theta + noisy_dtheta)
+
+            x_min, x_max, y_min, y_max = self._map.map_aabb
+            particle.x = max(x_min, min(x_max, particle.x))
+            particle.y = max(y_min, min(y_max, particle.y))
         ######### Your code ends here #########
 
     def measure(self, z: float, scan_angle_in_rad: float):
@@ -305,8 +307,6 @@ class ParticleFilter:
 
         # Calculate posterior probabilities and resample
         ######### Your code starts here #########
-        log_weights = []
-
         for particle in self._particles:
             expected = self._map.closest_distance(
                 (particle.x, particle.y),
@@ -314,7 +314,7 @@ class ParticleFilter:
             )
 
             if expected is None:
-                particle.log_p += math.log(1e-9)
+                particle.log_p += math.log(1e-12) 
                 continue
 
             likelihood = scipy.stats.norm(
@@ -323,10 +323,12 @@ class ParticleFilter:
             ).pdf(z)
 
             particle.log_p += math.log(likelihood + 1e-9)
-            log_weights.append(particle.log_p)
+        ######### Your code ends here #########
 
+    def resample(self):
         log_weights = np.array([p.log_p for p in self._particles])
-
+        
+        # Numerical stability trick
         log_weights -= np.max(log_weights)
         weights = np.exp(log_weights)
         weights /= np.sum(weights)
@@ -339,9 +341,9 @@ class ParticleFilter:
 
         self._particles = [copy.deepcopy(self._particles[i]) for i in indices]
 
+        # ONLY reset log_p after the final resample
         for p in self._particles:
             p.log_p = 0.0
-        ######### Your code ends here #########
 
     def get_estimate(self) -> Tuple[float, float, float]:
         # Estimate robot's location using particle weights
@@ -349,9 +351,7 @@ class ParticleFilter:
         if not self._particles:
             return 0.0, 0.0, 0.0
 
-        log_weights = np.array([p.log_p for p in self._particles])
-        log_weights -= np.max(log_weights)
-        weights = np.exp(log_weights)
+        weights = np.exp([p.log_p for p in self._particles])
         weights /= np.sum(weights)
 
         x = sum(p.x * w for p, w in zip(self._particles, weights))
@@ -435,7 +435,29 @@ class Controller:
         ######### Your code starts here #########
         # NOTE: with more than 2 angles the particle filter will converge too quickly, so with high likelihood the
         # correct neighborhood won't be found.
-        pass
+        if self.laserscan is None:
+            return
+
+        angles = [0, 90, 180, 270]
+        for angle_deg in angles:
+            angle_rad = math.radians(angle_deg)
+            idx = int((angle_rad - self.laserscan.angle_min) / self.laserscan.angle_increment)
+
+            if idx < 0 or idx >= len(self.laserscan.ranges):
+                continue
+
+            z = self.laserscan.ranges[idx]
+
+            if z == inf:
+                continue
+
+            angle_rad = math.radians(angle_deg)
+            self._particle_filter.measure(z, angle_rad)
+
+        self._particle_filter.resample()
+
+        self._particle_filter.visualize_particles()
+        self._particle_filter.visualize_estimate()
         ######### Your code ends here #########
 
     def autonomous_exploration(self):
