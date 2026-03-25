@@ -314,12 +314,11 @@ class ParticleFilter:
             )
 
             if expected is None:
-                particle.log_p += math.log(1e-12) 
                 continue
 
             likelihood = scipy.stats.norm(
                 loc=expected,
-                scale=self.measurement_variance
+                scale = math.sqrt(self.measurement_variance)
             ).pdf(z)
 
             particle.log_p += math.log(likelihood + 1e-9)
@@ -328,7 +327,6 @@ class ParticleFilter:
     def resample(self):
         log_weights = np.array([p.log_p for p in self._particles])
         
-        # Numerical stability trick
         log_weights -= np.max(log_weights)
         weights = np.exp(log_weights)
         weights /= np.sum(weights)
@@ -341,7 +339,6 @@ class ParticleFilter:
 
         self._particles = [copy.deepcopy(self._particles[i]) for i in indices]
 
-        # ONLY reset log_p after the final resample
         for p in self._particles:
             p.log_p = 0.0
 
