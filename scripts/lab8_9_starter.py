@@ -324,21 +324,55 @@ class ParticleFilter:
             particle.log_p += math.log(likelihood + 1e-9)
         ######### Your code ends here #########
 
+    # def resample(self):
+    #     log_weights = np.array([p.log_p for p in self._particles])
+        
+    #     log_weights -= np.max(log_weights)
+    #     weights = np.exp(log_weights)
+    #     weights /= np.sum(weights)
+
+    #     indices = np.random.choice(
+    #         len(self._particles),
+    #         size=len(self._particles),
+    #         p=weights
+    #     )
+
+    #     self._particles = [copy.deepcopy(self._particles[i]) for i in indices]
+
+    #     for p in self._particles:
+    #         p.log_p = 0.0
+
     def resample(self):
         log_weights = np.array([p.log_p for p in self._particles])
-        
         log_weights -= np.max(log_weights)
         weights = np.exp(log_weights)
         weights /= np.sum(weights)
 
-        indices = np.random.choice(
-            len(self._particles),
-            size=len(self._particles),
-            p=weights
-        )
+        n_random = int(self.n_particles * 0.0) 
+        n_weighted = self.n_particles - n_random
 
-        self._particles = [copy.deepcopy(self._particles[i]) for i in indices]
+        new_particles = []
+        r = uniform(0, 1.0 / n_weighted)
+        c = weights[0]
+        i = 0
+        for m in range(n_weighted):
+            u = r + m * (1.0 / n_weighted)
+            while u > c:
+                i += 1
+                c += weights[i]
+            new_particles.append(copy.deepcopy(self._particles[i]))
 
+        x_min, x_max, y_min, y_max = self._map.map_aabb
+        for _ in range(n_random):
+            new_particles.append(Particle(
+                uniform(x_min, x_max),
+                uniform(y_min, y_max),
+                uniform(-pi, pi),
+                0.0
+            ))
+
+        self._particles = new_particles
+        
         for p in self._particles:
             p.log_p = 0.0
 
@@ -435,7 +469,7 @@ class Controller:
         if self.laserscan is None:
             return
 
-        angles = [0, 90, 180, 270]
+        angles = range(0, 360, 30)
         for angle_deg in angles:
             angle_rad = math.radians(angle_deg)
             idx = int((angle_rad - self.laserscan.angle_min) / self.laserscan.angle_increment)
@@ -556,7 +590,7 @@ if __name__ == "__main__":
     num_particles = 200
     translation_variance = 0.1
     rotation_variance = 0.05
-    measurement_variance = 0.1
+    measurement_variance = 0.7
     particle_filter = ParticleFilter(map_, num_particles, translation_variance, rotation_variance, measurement_variance)
     controller = Controller(particle_filter)
 
