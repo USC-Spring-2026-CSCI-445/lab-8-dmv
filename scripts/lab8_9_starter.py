@@ -288,22 +288,35 @@ class ParticleFilter:
 
         return False
     
+    # def move_by(self, delta_x, delta_y, delta_theta):
+    #     delta_theta = angle_to_neg_pi_to_pi(delta_theta)
+
+    #     # Propagate motion of each particle
+    #     ######### Your code starts here #########
+    #     delta_theta = angle_to_neg_pi_to_pi(delta_theta)
+
+    #     for particle in self._particles:
+    #         noisy_dx = delta_x + np.random.normal(0, self.translation_variance)
+    #         noisy_dy = delta_y + np.random.normal(0, self.translation_variance)
+    #         noisy_dtheta = delta_theta + np.random.normal(0, self.rotation_variance)
+
+    #         particle.x += noisy_dx
+    #         particle.y += noisy_dy
+    #         particle.theta = angle_to_neg_pi_to_pi(particle.theta + noisy_dtheta)
+    #     ######### Your code ends here #########
+
     def move_by(self, delta_x, delta_y, delta_theta):
         delta_theta = angle_to_neg_pi_to_pi(delta_theta)
-
-        # Propagate motion of each particle
-        ######### Your code starts here #########
-        delta_theta = angle_to_neg_pi_to_pi(delta_theta)
+        delta_dist = math.sqrt(delta_x**2 + delta_y**2)
 
         for particle in self._particles:
-            noisy_dx = delta_x + np.random.normal(0, self.translation_variance)
-            noisy_dy = delta_y + np.random.normal(0, self.translation_variance)
-            noisy_dtheta = delta_theta + np.random.normal(0, self.rotation_variance)
+            if delta_dist > 1e-6:
+                noisy_dist = delta_dist + np.random.normal(0, self.translation_variance)
+                particle.x += noisy_dist * math.cos(particle.theta)
+                particle.y += noisy_dist * math.sin(particle.theta)
 
-            particle.x += noisy_dx
-            particle.y += noisy_dy
+            noisy_dtheta = delta_theta + np.random.normal(0, self.rotation_variance)
             particle.theta = angle_to_neg_pi_to_pi(particle.theta + noisy_dtheta)
-        ######### Your code ends here #########
     
     def measure(self, z: float, scan_angle_in_rad: float):
         for particle in self._particles:
@@ -327,14 +340,58 @@ class ParticleFilter:
 
             particle.log_p += math.log(likelihood + 1e-9)
 
+    # def resample(self):
+    #     log_weights = np.array([p.log_p for p in self._particles])
+    #     log_weights -= np.max(log_weights)
+    #     weights = np.exp(log_weights)
+    #     weights /= np.sum(weights)
+
+    #     n_random = int(self.n_particles * 0.0) 
+    #     n_weighted = self.n_particles - n_random
+
+    #     new_particles = []
+    #     r = uniform(0, 1.0 / n_weighted)
+    #     c = weights[0]
+    #     i = 0
+    #     for m in range(n_weighted):
+    #         u = r + m * (1.0 / n_weighted)
+    #         while u > c:
+    #             i += 1
+    #             c += weights[i]
+    #         new_particles.append(copy.deepcopy(self._particles[i]))
+
+    #     x_min, x_max, y_min, y_max = self._map.map_aabb
+    #     for _ in range(n_random):
+    #         new_particles.append(Particle(
+    #             uniform(x_min, x_max),
+    #             uniform(y_min, y_max),
+    #             uniform(-pi, pi),
+    #             0.0
+    #         ))
+
+    #     self._particles = new_particles
+        
+    #     for p in self._particles:
+    #         p.log_p = 0.0
+
     def resample(self):
+        threshold_fraction = 0.6
         log_weights = np.array([p.log_p for p in self._particles])
         log_weights -= np.max(log_weights)
         weights = np.exp(log_weights)
         weights /= np.sum(weights)
 
-        n_random = int(self.n_particles * 0.0) 
-        n_weighted = self.n_particles - n_random
+        n_eff = 1.0 / np.sum(weights ** 2)
+        n_threshold = threshold_fraction * self.n_particles
+
+        rospy.loginfo(f"N_eff: {n_eff:.1f} / {self.n_particles} (threshold: {n_threshold:.1f})")
+
+        if n_eff >= n_threshold:
+            for p, w in zip(self._particles, weights):
+                p.log_p = math.log(w + 1e-9)
+            return
+
+        n_weighted = self.n_particles
 
         new_particles = []
         r = uniform(0, 1.0 / n_weighted)
@@ -347,17 +404,7 @@ class ParticleFilter:
                 c += weights[i]
             new_particles.append(copy.deepcopy(self._particles[i]))
 
-        x_min, x_max, y_min, y_max = self._map.map_aabb
-        for _ in range(n_random):
-            new_particles.append(Particle(
-                uniform(x_min, x_max),
-                uniform(y_min, y_max),
-                uniform(-pi, pi),
-                0.0
-            ))
-
         self._particles = new_particles
-        
         for p in self._particles:
             p.log_p = 0.0
 
@@ -453,7 +500,7 @@ class Controller:
         # Use only 2 angles per call — more causes the filter to over-constrain
         # and collapse onto a local peak before the robot has disambiguated its position
         candidate_angles = list(range(-180, 180, 30))
-        selected_angles = np.random.choice(candidate_angles, size=3, replace=False)
+        selected_angles = np.random.choice(candidate_angles, size=2, replace=False)
 
         for angle_deg in selected_angles:
             angle_rad = math.radians(angle_deg)
@@ -485,7 +532,7 @@ class Controller:
         ######### Your code starts here #########
         rate = rospy.Rate(10)
         CONFIDENCE_THRESHOLD = 0.15
-        RANDOM_TURN_PROB = 0.2
+        RANDOM_TURN_PROB = 0.05
 
         while not rospy.is_shutdown():
 
@@ -505,9 +552,9 @@ class Controller:
             front_idx = max(0, min(len(self.laserscan.ranges) - 1, front_idx))
             front_dist = self.laserscan.ranges[front_idx]
 
-            if math.isnan(front_dist) or (front_dist != float('inf') and front_dist < 0.7):
+            if math.isnan(front_dist) or (front_dist != float('inf') and front_dist < 0.6):
                 rospy.loginfo("Wall detected, re-routing...")
-                turn = np.random.choice([pi/2, -pi/2, pi])
+                turn = np.random.choice([pi/2, -pi/2])
                 self.rotate_action(turn)
 
             else:
